@@ -16,6 +16,7 @@ file = {
 
 item = {
     const_decl
+    | output_config
     | memory_map
     | elf_segments
     | section
@@ -35,6 +36,48 @@ visibility = { "pub" }
 
 type_annotation = {
     "usize" | "Address" | "u64" | "u32" | "usize"
+}
+
+// ----------------------------------------------------------------------------
+// Output format
+// ----------------------------------------------------------------------------
+
+output_config = {
+    "output" ~ "{" ~
+        output_field* ~
+    "}"
+}
+
+output_field = {
+    output_format_field
+    | output_arch_field
+    | output_entry_field
+    | output_base_address_field
+    | output_endian_field
+    | output_also_generate_field
+}
+
+output_format_field       = { "format" ~ ":" ~ output_format ~ "," }
+output_arch_field         = { "arch" ~ ":" ~ arch_type ~ "," }
+output_entry_field        = { "entry" ~ ":" ~ IDENT ~ ","? }
+output_base_address_field = { "base_address" ~ ":" ~ expr ~ "," }
+output_endian_field       = { "endian" ~ ":" ~ endian_type ~ "," }
+output_also_generate_field = { "also_generate" ~ ":" ~ "[" ~ output_format_list ~ "]" ~ "," }
+
+output_format = {
+    "Elf64" | "Elf32" | "Binary" | "IntelHex" | "Srec" | "Pe" | "Coff"
+}
+
+output_format_list = {
+    output_format ~ ("," ~ output_format)*
+}
+
+arch_type = {
+    "AArch64" | "Arm" | "X86_64" | "X86" | "RiscV32" | "RiscV64" | "Mips" | "PowerPc"
+}
+
+endian_type = {
+    "Little" | "Big"
 }
 
 // ----------------------------------------------------------------------------

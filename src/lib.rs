@@ -377,4 +377,202 @@ discard {
         let result = LinkrsParser::parse(Rule::file, input);
         assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
     }
+
+    // ========================================================================
+    // Output block tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_output_minimal() {
+        let input = r#"
+output {
+    format: Elf64,
+    entry: _start
+}
+"#
+        .trim();
+        let result = LinkrsParser::parse(Rule::output_config, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse minimal output block: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_parse_output_kernel_elf64() {
+        let input = r#"
+output {
+    format: Elf64,
+    arch: AArch64,
+    entry: _start,
+}
+"#
+        .trim();
+        let result = LinkrsParser::parse(Rule::output_config, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse kernel output block: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_parse_output_embedded_binary() {
+        let input = r#"
+output {
+    format: Binary,
+    base_address: 0x0800_0000,
+    endian: Little,
+}
+"#
+        .trim();
+        let result = LinkrsParser::parse(Rule::output_config, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse embedded binary output block: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_parse_output_with_also_generate() {
+        let input = r#"
+output {
+    format: Elf32,
+    arch: Arm,
+    entry: Reset_Handler,
+    also_generate: [Binary, IntelHex],
+}
+"#
+        .trim();
+        let result = LinkrsParser::parse(Rule::output_config, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse output with also_generate: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_parse_output_all_architectures() {
+        // Test that all architecture types parse correctly
+        let archs = [
+            "AArch64", "Arm", "X86_64", "X86", "RiscV32", "RiscV64", "Mips", "PowerPc",
+        ];
+        for arch in archs {
+            let input = format!(
+                r#"
+output {{
+    format: Elf64,
+    arch: {},
+    entry: _start,
+}}
+"#,
+                arch
+            );
+            let result = LinkrsParser::parse(Rule::output_config, &input.trim());
+            assert!(
+                result.is_ok(),
+                "Failed to parse arch {}: {:?}",
+                arch,
+                result.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_output_all_formats() {
+        // Test that all output formats parse correctly
+        let formats = ["Elf64", "Elf32", "Binary", "IntelHex", "Srec", "Pe", "Coff"];
+        for format in formats {
+            let input = format!(
+                r#"
+output {{
+    format: {},
+    entry: main,
+}}
+"#,
+                format
+            );
+            let result = LinkrsParser::parse(Rule::output_config, &input.trim());
+            assert!(
+                result.is_ok(),
+                "Failed to parse format {}: {:?}",
+                format,
+                result.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_output_in_full_file() {
+        let input = r#"
+const PAGE_SIZE: usize = 64K;
+
+/// Output configuration
+output {
+    format: Elf64,
+    arch: AArch64,
+    entry: _start,
+}
+
+memory_map {
+    region FLASH {
+        permissions: Read | Execute,
+        start: 0x0800_0000,
+        size: 256K,
+    }
+}
+
+section .text {
+    place_in: FLASH,
+    contents {
+        input(.text*)
+    }
+}
+"#;
+        let result = LinkrsParser::parse(Rule::file, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse full file with output block: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_parse_output_riscv_example() {
+        let input = r#"
+output {
+    format: Elf32,
+    arch: RiscV32,
+    entry: _reset_vector,
+    endian: Little,
+}
+"#;
+        let result = LinkrsParser::parse(Rule::output_config, input.trim());
+        assert!(
+            result.is_ok(),
+            "Failed to parse RISC-V output block: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_parse_output_x86_bootloader() {
+        let input = r#"
+output {
+    format: Binary,
+    arch: X86,
+    base_address: 0x7C00,
+    endian: Little,
+}
+"#;
+        let result = LinkrsParser::parse(Rule::output_config, input.trim());
+        assert!(
+            result.is_ok(),
+            "Failed to parse x86 bootloader output block: {:?}",
+            result.err()
+        );
+    }
 }
