@@ -3,6 +3,12 @@ const PHYS_LOAD_ADDR: Address = 0x8_0000;
 
 pub const KERNEL_VIRT_BASE: Address = 0xffff_ffff_0000_0000;
 
+output {
+    entry: PHYS_LOAD_ADDR,
+    arch: AArch64,
+    also_generate: [Binary],
+}
+
 /// Initial kernel stack - reserved physical memory below load address
 /// This section has no file content, just reserves address space
 section init_thread_stack {
