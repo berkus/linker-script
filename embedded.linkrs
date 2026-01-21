@@ -1,0 +1,57 @@
+MemoryLayout {
+    Section("FLASH", .rx) {
+        .base = 0x08000000;
+        .size = 256K;
+    }
+    Section("RAM", .rwx) {
+        .base = 0x20000000;
+        .size = 64K;
+    }
+}
+
+Section(".text") {}
+Section(".data") {}
+Section(".bss") {}
+
+
+/* LD Source: */
+
+MEMORY {
+    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 256K
+    RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 64K
+}
+
+PHDRS {
+    flash PT_LOAD FLAGS(5);   /* Code in flash, RX */
+    ram   PT_LOAD FLAGS(6);   /* Data in RAM, RW */
+}
+
+SECTIONS {
+    /* Multiple sections → one "flash" segment */
+    .isr_vector : {
+        KEEP(*(.isr_vector))
+    } > FLASH : flash
+
+    .text : {
+        *(.text*)
+    } > FLASH : flash
+
+    .rodata : {
+        *(.rodata*)
+    } > FLASH : flash
+
+    /* Data sections → "ram" segment (but LMA in flash) */
+    .data : {
+        *(.data*)
+    } > RAM AT > FLASH : ram
+
+    .bss (NOLOAD) : {
+        *(.bss*)
+    } > RAM : ram
+
+    /* Debug sections — no segment assignment, not loaded */
+    .debug_info 0 : { *(.debug_info) }
+    .debug_line 0 : { *(.debug_line) }
+}
+
+TODO: /DISCARD/ pseudoselector.

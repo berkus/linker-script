@@ -1,0 +1,85 @@
+/* LD Script functions: */
+
+ABSOLUTE(exp)
+Returns the absolute (non-relocatable) value of expression
+
+ADDR(section)
+Returns the absolute address of a section
+
+LOADADDR(section)
+Returns the load address (LMA) of a section
+
+ALIGN(align)
+Returns current location aligned to next align boundary
+
+ALIGN(exp, align)
+Returns exp aligned up to align boundary
+
+ALIGNOF(section)
+Returns the alignment of a section
+
+DEFINED(symbol)
+Returns 1 if symbol is defined, 0 otherwise
+
+PROVIDE(symbol = location)
+Provide a symbol value if not already defined
+
+ORIGIN(memory)
+Returns the origin address of a memory region
+
+LENGTH(memory)
+Returns the length of a memory region
+
+SIZEOF(section)
+Returns the size in bytes of a section
+
+SIZEOF_HEADERS
+Returns the size of the output file headers
+
+NEXT(exp)
+Returns the next unallocated address that is a multiple of exp
+
+SEGMENT_START(segment, default)
+Returns segment base address, or default if not set
+
+BYTE(exp)
+Inserts a 1-byte value
+
+SHORT(exp)
+Inserts a 2-byte value
+
+LONG(exp)
+Inserts a 4-byte value
+
+QUAD(exp)
+Inserts an 8-byte value
+
+SQUAD(exp)
+Inserts a signed 8-byte value
+
+FILL(exp)
+Sets fill pattern for gaps in current section
+
+MIN(a, b)
+Returns the minimum of two values
+
+MAX(a, b)
+Returns the maximum of two values
+
+LOG2CEIL(exp)
+Returns ceiling of log base 2
+
+DATA_SEGMENT_ALIGN(maxsize, commonsize)
+Aligns data segment for efficient page sharing
+
+DATA_SEGMENT_END(exp)
+Marks end of data segment
+
+DATA_SEGMENT_RELRO_END(offset, exp)
+Marks end of RELRO segment
+
+ASSERT(exp, message)
+Asserts condition, prints message on failure
+
+PRINT(message)
+Prints a message during linking
