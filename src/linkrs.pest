@@ -1,0 +1,445 @@
+// ============================================================================
+// Linker Script DSL Grammar (pest)
+// ============================================================================
+// A Rust-like, self-describing linker script language
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Top-level file structure
+// ----------------------------------------------------------------------------
+
+file = {
+    SOI ~
+    (item)* ~
+    EOI
+}
+
+item = {
+    const_decl
+    | memory_map
+    | elf_segments
+    | section
+    | discard
+    | provide_symbols
+}
+
+// ----------------------------------------------------------------------------
+// Constants and symbols
+// ----------------------------------------------------------------------------
+
+const_decl = {
+    visibility? ~ "const" ~ IDENT ~ (":" ~ type_annotation)? ~ "=" ~ expr ~ ";"
+}
+
+visibility = { "pub" }
+
+type_annotation = {
+    "usize" | "Address" | "u64" | "u32" | "usize"
+}
+
+// ----------------------------------------------------------------------------
+// Memory map definition
+// ----------------------------------------------------------------------------
+
+memory_map = {
+    "memory_map" ~ "{" ~
+        (region_def)* ~
+    "}"
+}
+
+region_def = {
+    "region" ~ IDENT ~ "{" ~
+        region_field* ~
+    "}"
+}
+
+region_field = {
+    permissions_field
+    | start_field
+    | size_field
+}
+
+permissions_field = { "permissions" ~ ":" ~ permissions_expr ~ "," }
+start_field       = { "start" ~ ":" ~ expr ~ "," }
+size_field        = { "size" ~ ":" ~ expr ~ ","? }
+
+permissions_expr = {
+    permission ~ ("|" ~ permission)*
+}
+
+permission = {
+    "Read" | "Write" | "Execute"
+}
+
+// ----------------------------------------------------------------------------
+// ELF segments definition
+// ----------------------------------------------------------------------------
+
+elf_segments = {
+    "elf_segments" ~ "{" ~
+        (segment_def)* ~
+    "}"
+}
+
+segment_def = {
+    "segment" ~ IDENT ~ "{" ~
+        segment_field* ~
+    "}"
+}
+
+segment_field = {
+    segment_type_field
+    | permissions_field
+}
+
+segment_type_field = { "type" ~ ":" ~ segment_type ~ "," }
+
+segment_type = {
+    "Load" | "Dynamic" | "Interp" | "Note" | "Phdr" | "Tls" | "Null"
+}
+
+// ----------------------------------------------------------------------------
+// Section definition
+// ----------------------------------------------------------------------------
+
+section = {
+    "section" ~ section_name ~ "{" ~
+        section_body ~
+    "}"
+}
+
+section_name = {
+    SECTION_IDENT | IDENT
+}
+
+// Section names can start with a dot
+SECTION_IDENT = @{ "." ~ (ASCII_ALPHANUMERIC | "_" | ".")+ }
+
+section_body = {
+    section_item*
+}
+
+section_item = {
+    place_in_field
+    | load_from_field
+    | output_to_field
+    | permissions_field
+    | occupies_file_space_field
+    | address_block
+    | file_position_block
+    | contents_block
+    | assert_stmt
+    | assert_no_cross_refs
+}
+
+// Simple placement shorthands
+place_in_field          = { "place_in" ~ ":" ~ IDENT ~ "," }
+load_from_field         = { "load_from" ~ ":" ~ IDENT ~ "," }
+output_to_field         = { "output_to" ~ ":" ~ segment_ref ~ "," }
+occupies_file_space_field = { "occupies_file_space" ~ ":" ~ bool_literal ~ "," }
+
+segment_ref = { "segment" ~ "(" ~ IDENT ~ ")" }
+
+// Address block for complex addressing
+address_block = {
+    "address" ~ "{" ~
+        address_field* ~
+    "}"
+}
+
+address_field = {
+    address_start_field
+    | address_size_field
+    | address_alignment_field
+    | address_follows_field
+    | address_virtual_base_field
+    | address_region_field
+    | address_load_from_region_field
+}
+
+address_start_field           = { "start" ~ ":" ~ expr ~ "," }
+address_size_field            = { "size" ~ ":" ~ expr ~ "," }
+address_alignment_field       = { "alignment" ~ ":" ~ expr ~ ","? }
+address_follows_field         = { "follows" ~ ":" ~ IDENT ~ "," }
+address_virtual_base_field    = { "virtual_base" ~ ":" ~ expr ~ ","? }
+address_region_field          = { "region" ~ ":" ~ IDENT ~ "," }
+address_load_from_region_field = { "load_from_region" ~ ":" ~ IDENT ~ "," }
+
+// File position block
+file_position_block = {
+    "file_position" ~ "{" ~
+        file_position_field* ~
+    "}"
+}
+
+file_position_field = {
+    file_position_start_field
+}
+
+file_position_start_field = { "start" ~ ":" ~ file_position_value ~ ","? }
+
+file_position_value = {
+    "Origin" | expr
+}
+
+// ----------------------------------------------------------------------------
+// Contents block - what goes into the section
+// ----------------------------------------------------------------------------
+
+contents_block = {
+    "contents" ~ "{" ~
+        contents_item* ~
+    "}"
+}
+
+contents_item = {
+    cfg_attr_item
+    | symbol_def
+    | input_stmt
+    | keep_stmt
+    | align_to_stmt
+    | advance_by_stmt
+    | fill_padding_stmt
+    | from_chain
+}
+
+// Conditional compilation attribute
+cfg_attr_item = {
+    "#" ~ "[" ~ "cfg" ~ "(" ~ cfg_predicate ~ ")" ~ "]" ~
+    contents_item
+}
+
+cfg_predicate = {
+    cfg_feature | cfg_not | cfg_all | cfg_any
+}
+
+cfg_feature = { "feature" ~ "=" ~ string_literal }
+cfg_not     = { "not" ~ "(" ~ cfg_predicate ~ ")" }
+cfg_all     = { "all" ~ "(" ~ cfg_predicate ~ ("," ~ cfg_predicate)* ~ ")" }
+cfg_any     = { "any" ~ "(" ~ cfg_predicate ~ ("," ~ cfg_predicate)* ~ ")" }
+
+// Symbol definitions within contents
+symbol_def = {
+    visibility? ~ "symbol" ~ IDENT ~ "=" ~ location_expr ~ ";"
+}
+
+location_expr = {
+    here_expr ~ ("." ~ location_accessor)?
+}
+
+here_expr = { "here" ~ "(" ~ ")" }
+
+location_accessor = {
+    "physical" | "virtual"
+}
+
+// Input section matching
+input_stmt = {
+    input_chain ~ sort_modifier?
+}
+
+input_chain = {
+    from_clause? ~ input_call
+}
+
+from_chain = {
+    from_clause ~ input_call ~ sort_modifier?
+}
+
+from_clause = { "from" ~ "(" ~ glob_pattern ~ ")" }
+
+input_call = { "input" ~ "(" ~ input_pattern_list ~ ")" }
+
+input_pattern_list = {
+    input_pattern ~ (input_pattern)*
+}
+
+input_pattern = @{
+    "."? ~ (ASCII_ALPHANUMERIC | "_" | "." | "*")+
+}
+
+sort_modifier = {
+    "sort_by" ~ "(" ~ sort_key ~ ")"
+}
+
+sort_key = {
+    "name" | "address" | "alignment"
+}
+
+// Keep (prevent garbage collection)
+keep_stmt = {
+    "keep" ~ "(" ~ input_call ~ ")"
+}
+
+// Alignment and advancement
+align_to_stmt   = { "align_to" ~ "(" ~ expr ~ ")" ~ ";"? }
+advance_by_stmt = { "advance_by" ~ "(" ~ expr ~ ")" ~ ";"? }
+
+// Fill padding
+fill_padding_stmt = { "fill_padding_with" ~ "(" ~ expr ~ ")" }
+
+// ----------------------------------------------------------------------------
+// Assertions
+// ----------------------------------------------------------------------------
+
+assert_stmt = {
+    "assert" ~ "(" ~ assert_expr ~ "," ~ string_literal ~ ")" ~ ";"
+}
+
+assert_expr = {
+    comparison_expr
+}
+
+comparison_expr = {
+    additive_expr ~ (comparison_op ~ additive_expr)?
+}
+
+comparison_op = { "<" | ">" | "<=" | ">=" | "==" | "!=" }
+
+assert_no_cross_refs = {
+    "assert_no_cross_references_to" ~ "(" ~ ident_list ~ ")" ~ ";"
+}
+
+ident_list = {
+    IDENT ~ ("," ~ IDENT)*
+}
+
+// ----------------------------------------------------------------------------
+// Discard block
+// ----------------------------------------------------------------------------
+
+discard = {
+    "discard" ~ "{" ~
+        discard_item* ~
+    "}"
+}
+
+discard_item = {
+    input_stmt
+}
+
+// ----------------------------------------------------------------------------
+// Provide symbols (weak definitions)
+// ----------------------------------------------------------------------------
+
+provide_symbols = {
+    "provide_symbols" ~ "{" ~
+        provide_item* ~
+    "}"
+}
+
+provide_item = {
+    IDENT ~ "=" ~ IDENT ~ ","
+}
+
+// ----------------------------------------------------------------------------
+// Expressions
+// ----------------------------------------------------------------------------
+
+expr = {
+    additive_expr
+}
+
+additive_expr = {
+    multiplicative_expr ~ ((add_op) ~ multiplicative_expr)*
+}
+
+add_op = { "+" | "-" }
+
+multiplicative_expr = {
+    unary_expr ~ ((mul_op) ~ unary_expr)*
+}
+
+mul_op = { "*" | "/" | "%" }
+
+unary_expr = {
+    ("-" ~ unary_expr)
+    | postfix_expr
+}
+
+postfix_expr = {
+    primary_expr ~ (call_suffix | member_suffix)*
+}
+
+call_suffix   = { "(" ~ arg_list? ~ ")" }
+member_suffix = { "." ~ IDENT }
+
+arg_list = {
+    expr ~ ("," ~ expr)*
+}
+
+primary_expr = {
+    "(" ~ expr ~ ")"
+    | here_expr
+    | size_call
+    | number_literal
+    | IDENT
+}
+
+size_call = { "size" ~ "(" ~ ")" }
+
+// ----------------------------------------------------------------------------
+// Literals
+// ----------------------------------------------------------------------------
+
+number_literal = @{
+    hex_literal | decimal_with_suffix | decimal_literal
+}
+
+hex_literal = @{
+    "0x" ~ (ASCII_HEX_DIGIT | "_")+
+}
+
+decimal_literal = @{
+    ASCII_DIGIT ~ (ASCII_DIGIT | "_")*
+}
+
+decimal_with_suffix = @{
+    ASCII_DIGIT ~ (ASCII_DIGIT | "_")* ~ size_suffix
+}
+
+size_suffix = @{
+    "K" | "M" | "G" | "T"
+}
+
+bool_literal = { "true" | "false" }
+
+string_literal = @{
+    "\"" ~ string_content* ~ "\""
+}
+
+string_content = @{
+    (!("\"" | "\\") ~ ANY)
+    | ("\\" ~ ANY)
+}
+
+glob_pattern = @{
+    (ASCII_ALPHANUMERIC | "_" | "." | "*" | "?")+
+}
+
+// ----------------------------------------------------------------------------
+// Identifiers
+// ----------------------------------------------------------------------------
+
+IDENT = @{
+    (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
+}
+
+// Identifiers that can start with underscore(s) - for linker symbols
+SYMBOL_IDENT = @{
+    "_"* ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*
+}
+
+// ----------------------------------------------------------------------------
+// Comments and whitespace
+// ----------------------------------------------------------------------------
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+COMMENT = _{
+    line_comment | block_comment | doc_comment
+}
+
+line_comment  = @{ "//" ~ (!"\n" ~ ANY)* }
+doc_comment   = @{ "///" ~ (!"\n" ~ ANY)* }
+block_comment = @{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
