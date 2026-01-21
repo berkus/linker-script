@@ -1,103 +1,142 @@
-local PAGE_SIZE = 64K; // local - symbol for local use in script only
-local PHYS_LOAD_ADDR = 0x8_0000;
+const PAGE_SIZE: usize = 64K;
+const PHYS_LOAD_ADDR: Address = 0x8_0000;
 
-export __KERNEL_VIRT_BASE = 0xffff_ffff_0000_0000; // export - publish symbol in exe file
+pub const KERNEL_VIRT_BASE: Address = 0xffff_ffff_0000_0000;
 
-Section("init_thread_stack", .rw + .NoFileContent) {
-    MemoryView {
-        .base = 0x0; // sets LMA = VMA = 0x0
-        .size = PHYS_LOAD_ADDR; // Set section size to a fixed value
+/// Initial kernel stack - reserved physical memory below load address
+/// This section has no file content, just reserves address space
+section init_thread_stack {
+    permissions: Read | Write,
+    occupies_file_space: false,
+
+    address {
+        start: 0x0,
+        size: 0x8_0000,
     }
-    Contents {
-        export __INIT_THREAD_START = @;
-        export __STACK_BOTTOM = @;
 
-        advance(PHYS_LOAD_ADDR, PAGE_SIZE); // Move @ by argument, optionally align by second argument.
-        // Equiv. to `@ = advanced(PHYS_LOAD_ADDR); @ = aligned(@, PAGE_SIZE);`
+    contents {
+        pub symbol __INIT_THREAD_START = here();
+        pub symbol __STACK_BOTTOM = here();
 
-        export __STACK_TOP = @;
-    }
-}
+        advance_by(PHYS_LOAD_ADDR);
+        align_to(PAGE_SIZE);
 
-Section("init_thread_text", .rx) {
-    MemoryView {
-        .base = PHYS_LOAD_ADDR; // LMA = VMA = 0x8_0000
-    }
-    FileView {
-        .base = File.Origin; // in file we need to mark this "first loaded section, lowest file address"
-    }
-    Contents {
-        keep(all(".text.main.entry"));
-        all(".text.boot");
-        all(".data.boot");
-
-        align(PAGE_SIZE); // equivalent to `@ = aligned(@, PAGE_SIZE);`
-
-        export __INIT_THREAD_END = @; /* Here the boot code ends */
+        pub symbol __STACK_TOP = here();
     }
 }
 
-// This section lives at two addresses, LMA is directly after init_thread_text, but VMA is at __KERNEL_VIRT_BASE
-Section("nucleus_text", .rx) {
-    MemoryView {
-        .base = follow("init_thread_text");
-        .vma = __KERNEL_VIRT_BASE;
+/// Early boot code that runs with MMU off (identity mapped)
+section init_thread_text {
+    permissions: Read | Execute,
+
+    address {
+        start: PHYS_LOAD_ADDR,
     }
-    // FileView essentially mimics MemoryView so can be skipped..
-    Contents {
-        matching(".text*");
 
-        align(2048);
-
-        export __EXCEPTION_VECTORS_START = @;
-        keep(all(.vectors));
+    file_position {
+        start: Origin,  // First loadable content in file
     }
-    NoCrossRefs("init_thread_text", "init_thread_stack");
-}
 
-// The default for section is to follow(previous_section) so it doesn't need to be specified
-Section("nucleus_rodata", .ro, start_align(4)) {
-    Contents {
-        matching(".rodata*");
-        fill(0x00);
-    }
-    NoCrossRefs("init_thread_text", "init_thread_stack");
-}
+    contents {
+        keep(input(.text.main.entry))
+        input(.text.boot)
+        input(.data.boot)
 
-Section("nucleus_rwdata", .rw, start_align(PAGE_SIZE)) {
-    Contents {
-        matching(".data*");
-        fill(0x00);
-    }
-    NoCrossRefs("init_thread_text", "init_thread_stack");
-}
+        align_to(PAGE_SIZE);
 
-Section("nucleus_bss", .rw + .NoFileContent, start_align(PAGE_SIZE)) {
-    Contents {
-        export _BSS_START = @.lma; // Phys address of bss area
-        all(.bss*);
-        export _BSS_END = @.lma; // Phys address of bss area
+        pub symbol __INIT_THREAD_END = here();
     }
 }
 
-/* Exceptions linker script merely provides symbols */
+/// Main kernel code - runs at high virtual address
+/// Physical address follows init_thread_text, but virtual address
+/// is at KERNEL_VIRT_BASE (for when MMU is enabled)
+section nucleus_text {
+    permissions: Read | Execute,
 
-provide(current_el0_synchronous   = current_el0_synchronous);
-provide(current_el0_irq           = current_el0_irq);
-provide(current_el0_fiq           = default_exception_handler);
-provide(current_el0_serror        = current_el0_serror);
+    address {
+        follows: init_thread_text,      // LMA
+        virtual_base: KERNEL_VIRT_BASE, // VMA
+    }
 
-provide(current_elx_synchronous   = current_elx_synchronous);
-provide(current_elx_irq           = current_elx_irq);
-provide(current_elx_fiq           = default_exception_handler);
-provide(current_elx_serror        = current_elx_serror);
+    contents {
+        input(.text*)
 
-provide(lower_aarch64_synchronous = lower_aarch64_synchronous);
-provide(lower_aarch64_irq         = lower_aarch64_irq);
-provide(lower_aarch64_fiq         = default_exception_handler);
-provide(lower_aarch64_serror      = lower_aarch64_serror);
+        align_to(2048);
 
-provide(lower_aarch32_synchronous = lower_aarch32_synchronous);
-provide(lower_aarch32_irq         = lower_aarch32_irq);
-provide(lower_aarch32_fiq         = default_exception_handler);
-provide(lower_aarch32_serror      = lower_aarch32_serror);
+        pub symbol __EXCEPTION_VECTORS_START = here();
+        keep(input(.vectors))
+    }
+
+    /// This sections must not reference listed sections
+    assert_no_cross_references_to(init_thread_text, init_thread_stack);
+}
+
+section nucleus_rodata {
+    permissions: Read,
+
+    address {
+        alignment: 4,
+    }
+
+    contents {
+        input(.rodata*)
+        fill_padding_with(0x00)
+    }
+
+    assert_no_cross_references_to(init_thread_text, init_thread_stack);
+}
+
+section nucleus_rwdata {
+    permissions: Read | Write,
+
+    address {
+        alignment: PAGE_SIZE,
+    }
+
+    contents {
+        input(.data*)
+        fill_padding_with(0x00)
+    }
+
+    assert_no_cross_references_to(init_thread_text, init_thread_stack);
+}
+
+section nucleus_bss {
+    permissions: Read | Write,
+    occupies_file_space: false,
+
+    address {
+        alignment: PAGE_SIZE,
+    }
+
+    contents {
+        pub symbol __BSS_START = here().physical;
+        input(.bss*)
+        pub symbol __BSS_END = here().physical;
+    }
+}
+
+/// Weak symbol definitions for exception handlers
+/// If not defined elsewhere, these provide defaults
+provide_symbols {
+    current_el0_synchronous   = current_el0_synchronous,
+    current_el0_irq           = current_el0_irq,
+    current_el0_fiq           = default_exception_handler,
+    current_el0_serror        = current_el0_serror,
+
+    current_elx_synchronous   = current_elx_synchronous,
+    current_elx_irq           = current_elx_irq,
+    current_elx_fiq           = default_exception_handler,
+    current_elx_serror        = current_elx_serror,
+
+    lower_aarch64_synchronous = lower_aarch64_synchronous,
+    lower_aarch64_irq         = lower_aarch64_irq,
+    lower_aarch64_fiq         = default_exception_handler,
+    lower_aarch64_serror      = lower_aarch64_serror,
+
+    lower_aarch32_synchronous = lower_aarch32_synchronous,
+    lower_aarch32_irq         = lower_aarch32_irq,
+    lower_aarch32_fiq         = default_exception_handler,
+    lower_aarch32_serror      = lower_aarch32_serror,
+}

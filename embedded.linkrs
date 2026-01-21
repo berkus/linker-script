@@ -1,68 +1,95 @@
-MemoryLayout {
-    Block("FLASH", .rx) {
-        .base = 0x08000000;
-        .size = 256K;
+/// Define the physical memory regions available on this target
+memory_map {
+    region FLASH {
+        permissions: Read | Execute,
+        start: 0x0800_0000,
+        size: 256K,
     }
-    Block("RAM", .rwx) {
-        .base = 0x20000000;
-        .size = 64K;
+
+    region RAM {
+        permissions: Read | Write | Execute,
+        start: 0x2000_0000,
+        size: 64K,
     }
 }
 
-ElfSegments { // From LD PHDRS, not used anywhere else but for ELFs.
-    Segment("flash", .PT_LOAD + .rx); /* Code in flash, RX */
-    Segment("ram", .PT_LOAD + .rw);   /* Data in RAM, RW */
+/// ELF program headers - defines how loader maps file to memory (applicable only to ELFs)
+elf_segments {
+    segment flash {
+        type: Load,
+        permissions: Read | Execute,
+    }
+
+    segment ram {
+        type: Load,
+        permissions: Read | Write,
+    }
 }
 
 /* Multiple sections → one "flash" segment */
-Section(".isr_vector") {
-    MemoryView { Block("FLASH"); }
-    FileView { Segment("flash"); }
-    Contents { keep(all(".isr_vector")); }
-}
-Section(".text") {
-    MemoryView { Block("FLASH"); }
-    FileView { Segment("flash"); }
-    Contents { matching(".text*")); }
-}
-Section(".rodata") {
-    MemoryView { Block("FLASH"); }
-    FileView { Segment("flash"); }
-    Contents { matching(".rodata*")); }
-}
 
-/* Data sections → "ram" segment (but LMA in flash) */
-Section(".data") {
-    MemoryView { Block("RAM"); Lma("FLASH"); }
-    FileView { Segment("ram"); }
-    Contents { matching(".data*")); }
-}
-Section(".bss", .NoFileContent) {
-    MemoryView { Block("RAM"); }
-    FileView { Segment("ram"); }
-    Contents { matching(".bss*")); }
-}
-/* TODO: */
-SECTIONS {
-    /* Debug sections — no segment assignment, not loaded */
-    .debug_info 0 : { *(.debug_info) }
-    .debug_line 0 : { *(.debug_line) }
-}
+/// Interrupt vector table - must be at start of flash
+section .isr_vector {
+    place_in: FLASH,           // or place_in: region(FLASH) ??
+    output_to: segment(flash),
 
-/* TODO: /DISCARD/ pseudoselector. */
-
-/* TODO: handy grouping of .text .text* and similar patterns - eDSL? */
-SECTIONS {
-    .text : {
-        *(.text .text.*)
-        *(.rodata .rodata.*)
-    }
-
-    .data : {
-        *(.data .data.*)
-    }
-
-    .bss (NOLOAD) : {
-        *(.bss .bss.*)
+    contents {
+        keep(input(.isr_vector))
     }
 }
+
+section .text {
+    place_in: FLASH,
+    output_to: segment(flash),
+
+    contents {
+        input(.text*)
+    }
+}
+
+section .rodata {
+    place_in: FLASH,
+    output_to: segment(flash),
+
+    contents {
+        input(.rodata*)
+    }
+}
+
+/// Initialized data - lives in RAM but stored in FLASH
+section .data {
+    place_in: RAM,
+    load_from: FLASH,  // LMA differs from VMA
+    output_to: segment(ram),
+
+    contents {
+        input(.data*)
+    }
+}
+
+/// Uninitialized data - occupies RAM but not file space
+section .bss {
+    place_in: RAM,
+    output_to: segment(ram),
+    occupies_file_space: false,
+
+    contents {
+        input(.bss*)
+    }
+}
+
+// Debug sections — no segment assignment (no output_to:), not loaded at runtime
+section .debug_info {
+    input(.debug_info)
+}
+section .debug_line {
+    input(.debug_line .debug_*)
+}
+
+/// Sections to completely remove from output
+discard {
+    input(.comment)
+    input(.note*)
+}
+
+/* test*.o(.debug_note*) => file(test*.o, input(.debug_note*)) */
