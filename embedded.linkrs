@@ -30,7 +30,7 @@ elf_segments {
 
 /// Interrupt vector table - must be at start of flash
 section .isr_vector {
-    place_in: FLASH,           // or place_in: region(FLASH) ??
+    place_in: FLASH,           // shorthand for `address { region: FLASH }`, inherits permissions from region by default
     output_to: segment(flash),
 
     contents {
@@ -44,7 +44,14 @@ section .text {
 
     contents {
         input(.text*)
+        // Conditional inclusion
+        #[cfg(feature = "debug")]
+        input(.debug_text*)
     }
+
+    // Assertions
+    assert(size() < 64K, "text section too large");
+    assert(here() % 4 == 0, "misaligned");
 }
 
 section .rodata {
@@ -59,7 +66,12 @@ section .rodata {
 /// Initialized data - lives in RAM but stored in FLASH
 section .data {
     place_in: RAM,
-    load_from: FLASH,  // LMA differs from VMA
+    load_from: FLASH,  // LMA differs from VMA -- shorthand for `address { load_from_region: FLASH }`
+    // Same as above:
+    // address {
+    //     region: RAM,
+    //     load_from_region: FLASH,
+    // }
     output_to: segment(ram),
 
     contents {
@@ -80,10 +92,15 @@ section .bss {
 
 // Debug sections — no segment assignment (no output_to:), not loaded at runtime
 section .debug_info {
-    input(.debug_info)
+    contents {
+        input(.debug_info)
+    }
 }
+
 section .debug_line {
-    input(.debug_line .debug_*)
+    contents {
+        input(.debug_line .debug_*)
+    }
 }
 
 /// Sections to completely remove from output
@@ -92,4 +109,7 @@ discard {
     input(.note*)
 }
 
-/* test*.o(.debug_note*) => file(test*.o, input(.debug_note*)) */
+// Use fluent interface for extra filtering and sorting of sections:
+// test*.o(.debug_note*) => from(test*.o) input(.debug_note*)
+// SORT(test*.o(.debug_note*)) => from(test*.o) input(.debug_note*) sort_by(address)
+// etc.
