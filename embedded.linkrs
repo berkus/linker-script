@@ -1,57 +1,68 @@
 MemoryLayout {
-    Section("FLASH", .rx) {
+    Block("FLASH", .rx) {
         .base = 0x08000000;
         .size = 256K;
     }
-    Section("RAM", .rwx) {
+    Block("RAM", .rwx) {
         .base = 0x20000000;
         .size = 64K;
     }
 }
 
-Section(".text") {}
-Section(".data") {}
-Section(".bss") {}
-
-
-/* LD Source: */
-
-MEMORY {
-    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 256K
-    RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 64K
+ElfSegments { // From LD PHDRS, not used anywhere else but for ELFs.
+    Segment("flash", .PT_LOAD + .rx); /* Code in flash, RX */
+    Segment("ram", .PT_LOAD + .rw);   /* Data in RAM, RW */
 }
 
-PHDRS {
-    flash PT_LOAD FLAGS(5);   /* Code in flash, RX */
-    ram   PT_LOAD FLAGS(6);   /* Data in RAM, RW */
+/* Multiple sections → one "flash" segment */
+Section(".isr_vector") {
+    MemoryView { Block("FLASH"); }
+    FileView { Segment("flash"); }
+    Contents { keep(all(".isr_vector")); }
+}
+Section(".text") {
+    MemoryView { Block("FLASH"); }
+    FileView { Segment("flash"); }
+    Contents { matching(".text*")); }
+}
+Section(".rodata") {
+    MemoryView { Block("FLASH"); }
+    FileView { Segment("flash"); }
+    Contents { matching(".rodata*")); }
 }
 
+/* Data sections → "ram" segment (but LMA in flash) */
+Section(".data") {
+    MemoryView { Block("RAM"); Lma("FLASH"); }
+    FileView { Segment("ram"); }
+    Contents { matching(".data*")); }
+}
+Section(".bss", .NoFileContent) {
+    MemoryView { Block("RAM"); }
+    FileView { Segment("ram"); }
+    Contents { matching(".bss*")); }
+}
+/* TODO: */
 SECTIONS {
-    /* Multiple sections → one "flash" segment */
-    .isr_vector : {
-        KEEP(*(.isr_vector))
-    } > FLASH : flash
-
-    .text : {
-        *(.text*)
-    } > FLASH : flash
-
-    .rodata : {
-        *(.rodata*)
-    } > FLASH : flash
-
-    /* Data sections → "ram" segment (but LMA in flash) */
-    .data : {
-        *(.data*)
-    } > RAM AT > FLASH : ram
-
-    .bss (NOLOAD) : {
-        *(.bss*)
-    } > RAM : ram
-
     /* Debug sections — no segment assignment, not loaded */
     .debug_info 0 : { *(.debug_info) }
     .debug_line 0 : { *(.debug_line) }
 }
 
-TODO: /DISCARD/ pseudoselector.
+/* TODO: /DISCARD/ pseudoselector. */
+
+/* TODO: handy grouping of .text .text* and similar patterns - eDSL? */
+SECTIONS {
+    .text : {
+        *(.text .text.*)
+        *(.rodata .rodata.*)
+    }
+
+    .data : {
+        *(.data .data.*)
+    }
+
+    .bss (NOLOAD) : {
+        *(.bss .bss.*)
+    }
+}
